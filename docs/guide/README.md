@@ -6,8 +6,8 @@
 
 ```text
 docs/index.html        the reader (nav, search, dark mode, EN/FA switch, widgets)
-docs/guide/en/*.md     English chapters (done)
-docs/guide/fa/*.md     Persian chapters (same file names; next step)
+docs/guide/en/*.md     English chapters
+docs/guide/fa/*.md     Persian chapters (same file names, Vazirmatn font)
 docs/.nojekyll         serve files as-is on GitHub Pages
 ```
 

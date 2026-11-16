@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cloud Capacity Allocation: Design Guide</title>
 <meta name="description" content="Design guide for a cloud capacity reservation service: problem, decisions, API, state machines, idempotency, rate limits, tests and load results.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100..900&display=swap">
 <style>
 :root{--bg:#fff;--panel:#f6f8fa;--text:#1f2328;--muted:#656d76;--line:#d0d7de;--accent:#0969da;--accent-bg:#ddf4ff;--ok:#1a7f37;--warn:#9a6700;--bad:#cf222e;--code:#f3f4f6;--side:300px;
  --hl-kw:#cf222e;--hl-str:#0a3069;--hl-num:#0550ae;--hl-com:#6e7781;--hl-fn:#8250df;--hl-type:#953800;--hl-attr:#116329}
@@ -13,7 +16,8 @@
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:72px}
 body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,Vazirmatn,Tahoma,sans-serif}
-[dir=rtl] body{font-family:Vazirmatn,Tahoma,system-ui,sans-serif}
+[dir=rtl] body{font-family:Vazirmatn,Tahoma,system-ui,sans-serif;line-height:1.85}
+[dir=rtl] button,[dir=rtl] select,[dir=rtl] input{font-family:Vazirmatn,Tahoma,sans-serif}
 header{position:sticky;top:0;z-index:20;display:flex;gap:12px;align-items:center;padding:10px 16px;background:var(--bg);border-bottom:1px solid var(--line)}
 header h1{font-size:16px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 button,select{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 11px;cursor:pointer}
@@ -37,7 +41,7 @@ nav details[open]>summary::before{transform:rotate(90deg)}
 nav summary:hover{background:var(--line)}
 nav summary.sec{padding:4px 0}
 nav .sub{padding-inline-start:14px;border-inline-start:1px solid var(--line);margin-inline-start:14px}
-nav .num{color:var(--muted);font-variant-numeric:tabular-nums;margin-inline-end:6px;font-size:12.5px}
+nav .num{unicode-bidi:isolate;color:var(--muted);font-variant-numeric:tabular-nums;margin-inline-end:6px;font-size:12.5px}
 main{flex:1;min-width:0;max-width:940px;margin:0 auto;padding:24px 28px 80px}
 .pager{display:flex;justify-content:space-between;gap:10px;margin-top:48px;padding-top:16px;border-top:1px solid var(--line)}
 .crumb{font-size:13px;color:var(--muted);margin-bottom:4px}
@@ -46,7 +50,7 @@ article h1{font-size:2rem;margin:.2em 0 .5em;line-height:1.25}
 article h2{margin-top:2em;padding-bottom:.3em;border-bottom:1px solid var(--line);line-height:1.3}
 article h3{margin-top:1.6em}
 article a{color:var(--accent)}
-article blockquote{margin:1em 0;padding:.6em 1em;border-inline-start:4px solid var(--accent);background:var(--accent-bg);border-radius:0 6px 6px 0}
+article blockquote{margin:1em 0;padding:.6em 1em;border-inline-start:4px solid var(--accent);background:var(--accent-bg);border-start-end-radius:6px;border-end-end-radius:6px}
 article blockquote p{margin:.4em 0}
 article hr{border:0;border-top:1px solid var(--line);margin:2.2em 0}
 table{border-collapse:collapse;display:block;overflow-x:auto;max-width:100%;margin:1em 0;font-size:14.5px}
@@ -193,7 +197,7 @@ const slug = s => s.toLowerCase().trim().replace(/[^\p{L}\p{N}\s-]/gu,"").replac
 let lang = stored("lang") || "en", current = null, currentPath = "";
 
 function setTheme(t){ document.documentElement.dataset.theme = t; store("theme",t);
-  mermaid.initialize({startOnLoad:false,theme:t==="dark"?"dark":"default",securityLevel:"strict"}); }
+  mermaid.initialize({startOnLoad:false,theme:t==="dark"?"dark":"default",securityLevel:"strict",fontFamily:"Vazirmatn,system-ui,sans-serif"}); }
 setTheme(stored("theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
 $("#theme").onclick = () => { setTheme(document.documentElement.dataset.theme==="dark"?"light":"dark"); route(); };
 $("#menu").onclick = () => $("#nav").classList.toggle("open");
@@ -238,14 +242,16 @@ async function load(page, docPath){
   current = page; const doc = $("#doc");
   currentPath = docPath || page.path || `guide/${lang}/${page.id}.md`;
   let md, note = "";
-  try { md = await fetchText(currentPath); }
+  const localized = lang !== "en" && currentPath.startsWith("adr/") ? currentPath.replace(/\.md$/, `.${lang}.md`) : null;
+  if (localized) try { md = await fetchText(localized); currentPath = localized; } catch(_){}
+  if (md === undefined) try { md = await fetchText(currentPath); }
   catch(e){
     if (page && !page.path && lang !== "en") {           // fall back to English with a notice
       try { md = await fetchText(`guide/en/${page.id}.md`); currentPath = `guide/en/${page.id}.md`; note = UI[lang].missing; } catch(_){}
     }
     if (md === undefined) md = `# ${page ? esc(page[lang]) : ""}\n\n> ${UI[lang].notFound}`;
   }
-  if ((page?.path || docPath) && lang !== "en") note = UI[lang].englishOnly;
+  if ((page?.path || docPath) && lang !== "en" && currentPath !== localized) note = UI[lang].englishOnly;
   doc.innerHTML = (note ? `<div class="note">${note}</div>` : "") + marked.parse(md);
   enhance(doc);
   try { await mermaid.run({querySelector:"#doc .mermaid"}); } catch(e){ console.warn("mermaid", e); }
