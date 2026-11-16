@@ -1,0 +1,26 @@
+groups:
+  - name: capacity
+    rules:
+      - alert: LedgerDrift            # page
+        expr: max(capacity_ledger_drift_rows) > 0
+        labels: { severity: page }
+      - alert: HoldLatencyHigh        # ticket
+        expr: histogram_quantile(0.99, sum by (le) (rate(capacity_hold_duration_seconds_bucket[5m]))) > 0.15
+        for: 10m
+        labels: { severity: ticket }
+      - alert: ExpiryLagHigh          # page
+        expr: histogram_quantile(0.99, sum by (le) (rate(capacity_expiry_lag_seconds_bucket[5m]))) > 5
+        for: 5m
+        labels: { severity: page }
+      - alert: OutboxStuck            # page
+        expr: max(capacity_outbox_oldest_age_seconds) > 60
+        labels: { severity: page }
+      - alert: HotRowNearLimit        # ticket
+        expr: max(capacity_holds_per_row_rate) > 120
+        for: 5m
+        labels: { severity: ticket }
+      - alert: ErrorBudgetBurn        # page: 99.95% availability, burn rate > 2x over 1h
+        expr: |
+          sum(rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[1h]))
+            / sum(rate(http_server_request_duration_seconds_count[1h])) > 2 * 0.0005
+        labels: { severity: page }

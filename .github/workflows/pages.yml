@@ -1,0 +1,56 @@
+# Publishes the design guide (docs/) to GitHub Pages.
+# One-time setup: repository Settings → Pages → Build and deployment → Source: "GitHub Actions".
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer push cancels nothing that is already deploying.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that every page in the menu exists
+        run: |
+          python3 - <<'EOF'
+          import os, re, sys
+          os.chdir("docs")
+          script = open("index.html").read()
+          missing = [f"adr/{n}-{f}.md" for n, f in re.findall(r'ADR\("(\d+)","([a-z0-9-]+)"', script)
+                     if not os.path.exists(f"adr/{n}-{f}.md")]
+          missing += [f"guide/en/{i}.md" for i in re.findall(r'^\s*\["([0-9a-z-]+)","', script, re.M)
+                      if not i.startswith("adr-") and not os.path.exists(f"guide/en/{i}.md")]
+          if missing:
+              sys.exit("Missing pages:\n  " + "\n  ".join(missing))
+          print("All menu pages exist.")
+          EOF
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

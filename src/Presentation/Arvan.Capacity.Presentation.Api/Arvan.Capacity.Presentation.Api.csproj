@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>Arvan.Capacity</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11"/>
+        <PackageReference Include="FluentValidation" Version="12.1.1"/>
+        <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\Framework\Arvan.Capacity.Framework.Presentation\Arvan.Capacity.Framework.Presentation.csproj"/>
+        <ProjectReference Include="..\..\Application\Arvan.Capacity.Application\Arvan.Capacity.Application.csproj"/>
+        <ProjectReference Include="..\..\Infrastructure\Arvan.Capacity.Infrastructure\Arvan.Capacity.Infrastructure.csproj"/>
+    </ItemGroup>
+
+</Project>

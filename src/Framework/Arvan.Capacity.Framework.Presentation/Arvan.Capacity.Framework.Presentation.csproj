@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>Arvan.Capacity.Framework.Presentation</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="FluentValidation" Version="12.1.1" />
+        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.21.0" />
+        <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.21.0-beta.1" />
+        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.21.0" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.21.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- BusinessException and DomainException, which AppExceptionHandler maps to status codes. -->
+        <ProjectReference Include="..\..\Application\Arvan.Capacity.Application\Arvan.Capacity.Application.csproj" />
+        <ProjectReference Include="..\..\Domain\Arvan.Capacity.Domain\Arvan.Capacity.Domain.csproj" />
+    </ItemGroup>
+
+</Project>

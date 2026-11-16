@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hold latency: where it goes and the plan</title><style>
+:root{--bg:#fbfaf7;--fg:#1d2330;--mut:#5b6475;--card:#ffffff;--line:#d9d6cc;--acc:#1f5eff;--red:#c4281c;--green:#14733c;--amber:#a15c00;
+--c-setup:#cbd2e0;--c-read:#bcd7f2;--c-write:#cfe9d4;--c-quota:#f0e3b3;--c-lock:#f3b8b0;--c-fin:#d8c9ee;--code:#f1efe8}
+@media (prefers-color-scheme:dark){:root{--bg:#12151c;--fg:#e8eaf0;--mut:#9aa3b5;--card:#1a1f29;--line:#2d3442;--acc:#7da2ff;--red:#ff7a6e;--green:#5fd08a;--amber:#f0b45a;
+--c-setup:#3a4358;--c-read:#26476b;--c-write:#285a3a;--c-quota:#645420;--c-lock:#7a3027;--c-fin:#4a3a6b;--code:#222836}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.wrap{max-width:1040px;margin:0 auto;padding:40px 20px 80px}
+h1{font-size:2rem;line-height:1.2;margin:0 0 6px}h2{font-size:1.35rem;margin:46px 0 10px;padding-top:10px;border-top:1px solid var(--line)}h3{font-size:1.05rem;margin:22px 0 6px}
+p{margin:8px 0}.lead{font-size:1.1rem;color:var(--mut);max-width:72ch}
+.meta{color:var(--mut);font-size:.9rem;margin-bottom:22px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:18px 0}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.stat b{display:block;font-size:1.7rem;line-height:1.1}.stat span{color:var(--mut);font-size:.88rem}
+.bad{color:var(--red)}.good{color:var(--green)}.warn{color:var(--amber)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:14px 0;overflow-x:auto}
+svg{width:100%;height:auto;display:block;min-width:720px}
+table{border-collapse:collapse;width:100%;font-size:.93rem}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-weight:600;font-size:.82rem;text-transform:uppercase;letter-spacing:.03em}
+code{background:var(--code);padding:1px 6px;border-radius:5px;font-size:.88em}
+.pill{display:inline-block;padding:1px 9px;border-radius:99px;font-size:.78rem;font-weight:600;border:1px solid var(--line)}
+.p0{color:var(--acc)}.p1{color:var(--green)}.p2{color:var(--amber)}.p3{color:var(--red)}
+ol.steps{padding-left:1.2em}ol.steps li{margin:6px 0}
+.callout{border-left:4px solid var(--amber);background:var(--card);padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.85rem;color:var(--mut);margin:6px 0 2px}.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+footer{margin-top:50px;color:var(--mut);font-size:.85rem}
+/* svg */
+.c-setup{fill:var(--c-setup)}.c-read{fill:var(--c-read)}.c-write{fill:var(--c-write)}.c-quota{fill:var(--c-quota)}.c-lock{fill:var(--c-lock)}.c-fin{fill:var(--c-fin)}
+svg text{fill:var(--fg);font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.num{font-weight:700;font-size:12px}.lbl{font-weight:600;font-size:11px}.small{fill:var(--mut)!important;font-size:11.5px}.tiny{fill:var(--mut)!important;font-size:10px}
+.phase-line{stroke:var(--mut);stroke-width:1}.lockbox{fill:none;stroke:var(--red);stroke-width:2;stroke-dasharray:6 4}.lock-lbl{fill:var(--red)!important;font-weight:700;font-size:12.5px}
+.redt{fill:var(--red)!important;font-weight:700;font-size:12px}.gt{font-weight:700;font-size:13px}.nt{font-weight:600;font-size:12.5px}
+.node{fill:var(--card);stroke:var(--line);stroke-width:1.5}.group{fill:none;stroke:var(--line);stroke-width:1.5;stroke-dasharray:3 3}
+.l-pres{fill:var(--c-read);opacity:.75}.l-app{fill:var(--c-write);opacity:.8}.l-infra{fill:var(--c-fin);opacity:.8}
+.chip rect{fill:var(--card);stroke:var(--line)}.chip text{font-size:11px}
+.tbl rect{fill:var(--card);stroke:var(--line)}.tbl text{font-size:11px}.tbl.hot rect{fill:var(--c-lock);stroke:var(--red);stroke-width:2}
+.edge{stroke:var(--mut);stroke-width:1.6;fill:none}.edge.heavy{stroke:var(--red);stroke-width:3}.edge.dashed{stroke-dasharray:4 3}.arrowhead{fill:var(--mut)}
+.grid{stroke:var(--line);stroke-width:1}.target{stroke:var(--red);stroke-width:2;stroke-dasharray:7 5}
+.ln{fill:none;stroke-width:2.5}.s-succ{stroke:var(--green);fill:var(--green)}.s-rej{stroke:var(--red);fill:var(--red)}.s-rej2{stroke:var(--acc);fill:var(--acc)}
+.ln.s-succ,.ln.s-rej,.ln.s-rej2{fill:none}
+</style></head>
+<body><div class="wrap">
+
+<h1>Hold latency: where it goes, and the plan to meet 150 ms</h1>
+<p class="meta">Cloud Capacity Allocation · report of 2026-11-16 · based on the running implementation (<code>make up</code> stack) and measurements taken for this report</p>
+<p class="lead">The service is <b>correct</b> under every load tried (no oversell, zero ledger drift), and meets the 150 ms p99 target at the modelled peak. It does <b>not</b> meet it once one inventory row is pushed past about 150 holds/s, and the rejection path collapses past about 150 requests/s. The cause is structural: a hold costs <b>28 network round trips</b>, and the contended row stays locked for the last 7 of them.</p>
+
+<div class="grid3">
+  <div class="stat"><b class="good">≈ 60 ms</b><span>p99 at the modelled peak (5 req/s). Target 150 ms: met.</span></div>
+  <div class="stat"><b class="warn">125–164 ms</b><span>p99 for granted holds at 100–200 req/s on one row: borderline, then over.</span></div>
+  <div class="stat"><b class="bad">4.6 s</b><span>p99 for stored rejections at 200 req/s on one row; 15 s in the scarce-burst run, with 11% 503s.</span></div>
+  <div class="stat"><b>28 → 4</b><span>round trips per hold, planned. Row lock window: 7 round trips → about 1.</span></div>
+</div>
+
+<h2>1 · Current architecture of a hold request</h2>
+<p>A <code>POST /v1/reservations</code> runs as one <code>SubmitReservationUseCase</code>. It owns a single READ COMMITTED transaction, asks the Operations to validate and plan, then tries each plan under a savepoint until one conditional <code>UPDATE</code> succeeds. Nothing outside PostgreSQL is on the decision path; the broker is fed afterwards from the outbox.</p>
+<div class="card">
+<svg viewBox="0 0 1000 470" role="img" aria-label="Architecture of the hold request">
+  <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="arrowhead"/></marker></defs>
+
+  <!-- clients -->
+  <rect x="20" y="40" width="120" height="54" rx="8" class="node"/>
+  <text x="80" y="64" class="nt" text-anchor="middle">Customer panel</text><text x="80" y="82" class="small" text-anchor="middle">automation, services</text>
+  <rect x="20" y="130" width="120" height="54" rx="8" class="node"/>
+  <text x="80" y="154" class="nt" text-anchor="middle">API gateway</text><text x="80" y="172" class="small" text-anchor="middle">auth → identity headers</text>
+  <line x1="80" y1="94" x2="80" y2="130" class="edge" marker-end="url(#arr)"/>
+
+  <!-- api process -->
+  <rect x="180" y="20" width="400" height="400" rx="12" class="group"/>
+  <text x="196" y="44" class="gt">api process  ·  .NET 10, stateless, 3+ replicas</text>
+
+  <rect x="200" y="60" width="360" height="52" rx="8" class="l-pres"/>
+  <text x="212" y="82" class="nt">Presentation</text>
+  <text x="212" y="100" class="small">ReservationsController · FluentValidation · rate limiter · identity headers</text>
+
+  <rect x="200" y="122" width="360" height="62" rx="8" class="l-app"/>
+  <text x="212" y="144" class="nt">UseCase — SubmitReservationUseCase</text>
+  <text x="212" y="162" class="small">owns the transaction · validate → mutate → shape</text>
+  <text x="212" y="176" class="small">1 hold attempt per plan, each under a savepoint · 1 retry after inline finalize</text>
+
+  <rect x="200" y="194" width="360" height="104" rx="8" class="l-app"/>
+  <text x="212" y="216" class="nt">Operations (one aggregate each)</text>
+  <g class="chip"><rect x="212" y="226" width="104" height="24" rx="5"/><text x="264" y="242" text-anchor="middle">Idempotency</text></g>
+  <g class="chip"><rect x="322" y="226" width="68" height="24" rx="5"/><text x="356" y="242" text-anchor="middle">Catalog</text></g>
+  <g class="chip"><rect x="396" y="226" width="150" height="24" rx="5"/><text x="471" y="242" text-anchor="middle">Reservation (limits)</text></g>
+  <g class="chip"><rect x="212" y="258" width="190" height="24" rx="5"/><text x="307" y="274" text-anchor="middle">Capacity (plan · hold · classify)</text></g>
+  <text x="412" y="274" class="small">+ domain: HoldPlanner,</text>
+  <text x="412" y="288" class="small">ShortageClassifier, Reservation</text>
+
+  <rect x="200" y="308" width="360" height="52" rx="8" class="l-infra"/>
+  <text x="212" y="330" class="nt">Repositories — Infrastructure</text>
+  <text x="212" y="348" class="small">Dapper · Npgsql · one connection + transaction per request</text>
+
+  <rect x="200" y="370" width="360" height="38" rx="8" class="l-infra"/>
+  <text x="212" y="394" class="small">DbClock (SELECT now()) · SoldOutCache (1 s) · catalog cache (2 s)</text>
+
+  <line x1="140" y1="157" x2="200" y2="157" class="edge" marker-end="url(#arr)"/>
+
+  <!-- postgres -->
+  <rect x="640" y="20" width="340" height="300" rx="12" class="group"/>
+  <text x="656" y="44" class="gt">PostgreSQL 17  ·  single source of truth</text>
+  <g class="tbl"><rect x="660" y="60" width="140" height="30" rx="5"/><text x="730" y="80" text-anchor="middle">idempotency_keys</text></g>
+  <g class="tbl"><rect x="820" y="60" width="140" height="30" rx="5"/><text x="890" y="80" text-anchor="middle">products (cached)</text></g>
+  <g class="tbl"><rect x="660" y="100" width="140" height="30" rx="5"/><text x="730" y="120" text-anchor="middle">reservations</text></g>
+  <g class="tbl"><rect x="820" y="100" width="140" height="30" rx="5"/><text x="890" y="120" text-anchor="middle">reservation_lines</text></g>
+  <g class="tbl"><rect x="660" y="140" width="140" height="30" rx="5"/><text x="730" y="160" text-anchor="middle">reservation_events</text></g>
+  <g class="tbl"><rect x="820" y="140" width="140" height="30" rx="5"/><text x="890" y="160" text-anchor="middle">ledger_entries</text></g>
+  <g class="tbl"><rect x="660" y="190" width="140" height="30" rx="5"/><text x="730" y="210" text-anchor="middle">quotas (per customer)</text></g>
+  <g class="tbl hot"><rect x="820" y="190" width="140" height="30" rx="5"/><text x="890" y="210" text-anchor="middle">inventories (HOT ROW)</text></g>
+  <text x="660" y="246" class="small">held + used + q ≤ floor((total − reserved) × ratio)</text>
+  <text x="660" y="262" class="small">enforced by the conditional UPDATE and a CHECK constraint</text>
+  <text x="660" y="284" class="small">events = history + transactional outbox</text>
+  <text x="660" y="300" class="small">ledger = append-only truth; counters must equal its sums</text>
+
+  <line x1="560" y1="300" x2="640" y2="230" class="edge heavy" marker-end="url(#arr)"/>
+  <text x="568" y="318" class="redt">28 round trips</text>
+  <text x="568" y="334" class="small">per request,</text><text x="568" y="348" class="small">sequential</text>
+
+  <!-- background roles -->
+  <rect x="640" y="384" width="150" height="58" rx="8" class="node"/>
+  <text x="715" y="406" class="nt" text-anchor="middle">sweeper</text><text x="715" y="424" class="small" text-anchor="middle">expire · timeout · promote</text>
+  <rect x="810" y="384" width="170" height="58" rx="8" class="node"/>
+  <text x="895" y="406" class="nt" text-anchor="middle">relay → RabbitMQ</text><text x="895" y="424" class="small" text-anchor="middle">after commit, never on path</text>
+  <line x1="715" y1="384" x2="715" y2="322" class="edge dashed" marker-end="url(#arr)"/>
+  <line x1="895" y1="384" x2="895" y2="322" class="edge dashed" marker-end="url(#arr)"/>
+</svg></div>
+
+<h3>Inside the transaction, in order</h3>
+<p>This is the exact statement sequence captured from PostgreSQL's log for a three-line request (vCPU, RAM, IPv4). Each box is one network round trip; they run strictly one after another.</p>
+<div class="legend"><span><i style="background:var(--c-setup)"></i>setup</span><span><i style="background:var(--c-read)"></i>reads</span><span><i style="background:var(--c-write)"></i>write the request</span><span><i style="background:var(--c-quota)"></i>quota</span><span><i style="background:var(--c-lock)"></i>inventory (the hot row)</span><span><i style="background:var(--c-fin)"></i>ledger and finish</span></div>
+<div class="card">
+<svg viewBox="0 0 1000 200" role="img" aria-label="The 28 round trips of one three-line hold; the inventory row lock is held from trip 22 to trip 28">
+  <text x="20" y="58" class="lbl">Setup</text>
+<line x1="20" y1="62" x2="152" y2="62" class="phase-line"/>
+<text x="156" y="58" class="lbl">Read the world</text>
+<line x1="156" y1="62" x2="322" y2="62" class="phase-line"/>
+<text x="326" y="58" class="lbl">Write request</text>
+<line x1="326" y1="62" x2="526" y2="62" class="phase-line"/>
+<text x="530" y="58" class="lbl">Quota</text>
+<line x1="530" y1="62" x2="730" y2="62" class="phase-line"/>
+<text x="734" y="58" class="lbl">Inv.</text>
+<line x1="734" y1="62" x2="764" y2="62" class="phase-line"/>
+<text x="768" y="58" class="lbl">Finish</text>
+<line x1="768" y1="62" x2="968" y2="62" class="phase-line"/>
+<rect x="20" y="70" width="30" height="46" rx="4" class="c-setup"/>
+<text x="35.0" y="97.0" class="num" text-anchor="middle">1</text>
+<rect x="54" y="70" width="30" height="46" rx="4" class="c-setup"/>
+<text x="69.0" y="97.0" class="num" text-anchor="middle">2</text>
+<rect x="88" y="70" width="30" height="46" rx="4" class="c-setup"/>
+<text x="103.0" y="97.0" class="num" text-anchor="middle">3</text>
+<rect x="122" y="70" width="30" height="46" rx="4" class="c-setup"/>
+<text x="137.0" y="97.0" class="num" text-anchor="middle">4</text>
+<rect x="156" y="70" width="30" height="46" rx="4" class="c-read"/>
+<text x="171.0" y="97.0" class="num" text-anchor="middle">5</text>
+<rect x="190" y="70" width="30" height="46" rx="4" class="c-read"/>
+<text x="205.0" y="97.0" class="num" text-anchor="middle">6</text>
+<rect x="224" y="70" width="30" height="46" rx="4" class="c-read"/>
+<text x="239.0" y="97.0" class="num" text-anchor="middle">7</text>
+<rect x="258" y="70" width="30" height="46" rx="4" class="c-read"/>
+<text x="273.0" y="97.0" class="num" text-anchor="middle">8</text>
+<rect x="292" y="70" width="30" height="46" rx="4" class="c-read"/>
+<text x="307.0" y="97.0" class="num" text-anchor="middle">9</text>
+<rect x="326" y="70" width="30" height="46" rx="4" class="c-write"/>
+<text x="341.0" y="97.0" class="num" text-anchor="middle">10</text>
+<rect x="360" y="70" width="30" height="46" rx="4" class="c-write"/>
+<text x="375.0" y="97.0" class="num" text-anchor="middle">11</text>
+<rect x="394" y="70" width="30" height="46" rx="4" class="c-write"/>
+<text x="409.0" y="97.0" class="num" text-anchor="middle">12</text>
+<rect x="428" y="70" width="30" height="46" rx="4" class="c-write"/>
+<text x="443.0" y="97.0" class="num" text-anchor="middle">13</text>
+<rect x="462" y="70" width="30" height="46" rx="4" class="c-write"/>
+<text x="477.0" y="97.0" class="num" text-anchor="middle">14</text>
+<rect x="496" y="70" width="30" height="46" rx="4" class="c-write"/>
+<text x="511.0" y="97.0" class="num" text-anchor="middle">15</text>
+<rect x="530" y="70" width="30" height="46" rx="4" class="c-quota"/>
+<text x="545.0" y="97.0" class="num" text-anchor="middle">16</text>
+<rect x="564" y="70" width="30" height="46" rx="4" class="c-quota"/>
+<text x="579.0" y="97.0" class="num" text-anchor="middle">17</text>
+<rect x="598" y="70" width="30" height="46" rx="4" class="c-quota"/>
+<text x="613.0" y="97.0" class="num" text-anchor="middle">18</text>
+<rect x="632" y="70" width="30" height="46" rx="4" class="c-quota"/>
+<text x="647.0" y="97.0" class="num" text-anchor="middle">19</text>
+<rect x="666" y="70" width="30" height="46" rx="4" class="c-quota"/>
+<text x="681.0" y="97.0" class="num" text-anchor="middle">20</text>
+<rect x="700" y="70" width="30" height="46" rx="4" class="c-quota"/>
+<text x="715.0" y="97.0" class="num" text-anchor="middle">21</text>
+<rect x="734" y="70" width="30" height="46" rx="4" class="c-lock"/>
+<text x="749.0" y="97.0" class="num" text-anchor="middle">22</text>
+<rect x="768" y="70" width="30" height="46" rx="4" class="c-fin"/>
+<text x="783.0" y="97.0" class="num" text-anchor="middle">23</text>
+<rect x="802" y="70" width="30" height="46" rx="4" class="c-fin"/>
+<text x="817.0" y="97.0" class="num" text-anchor="middle">24</text>
+<rect x="836" y="70" width="30" height="46" rx="4" class="c-fin"/>
+<text x="851.0" y="97.0" class="num" text-anchor="middle">25</text>
+<rect x="870" y="70" width="30" height="46" rx="4" class="c-fin"/>
+<text x="885.0" y="97.0" class="num" text-anchor="middle">26</text>
+<rect x="904" y="70" width="30" height="46" rx="4" class="c-fin"/>
+<text x="919.0" y="97.0" class="num" text-anchor="middle">27</text>
+<rect x="938" y="70" width="30" height="46" rx="4" class="c-fin"/>
+<text x="953.0" y="97.0" class="num" text-anchor="middle">28</text>
+  <rect x="731" y="64" width="240" height="58" rx="6" class="lockbox"/>
+  <text x="990" y="150" class="lock-lbl" text-anchor="end">inventory row locked: 7 round trips</text>
+  <text x="990" y="168" class="small" text-anchor="end">update, 3 ledger, release, idem., commit + fsync</text>
+  <text x="20" y="150" class="small">1 box = 1 network round trip (client ⇄ PostgreSQL) · 31 SQL statements, 28 round trips for a 3-line request</text>
+</svg></div>
+
+<table>
+<tr><th>Observation from the trace</th><th>Why it matters</th></tr>
+<tr><td>One round trip per row for lines (3), quota ensure (3), quota charge (3) and ledger (3): 12 trips that could be 1 batch.</td><td>Cost grows with the number of lines. Average request is 4 lines, maximum 16.</td></tr>
+<tr><td>The inventory <code>UPDATE</code> comes <b>before</b> the ledger rows, the savepoint release, the idempotency response and the commit.</td><td>The hot row is locked for 7 trips plus the commit's fsync. Per-row throughput is roughly the inverse of that window. The load model assumed <i>one</i> round trip here.</td></tr>
+<tr><td>Four read queries (<code>now()</code>, cooldown, open holds, snapshot) plus the idempotency claim, each separate.</td><td>5 trips before any write; all could be one.</td></tr>
+<tr><td><code>DISCARD ALL</code> on every connection return, and no prepared statements (every statement is parsed and planned each time).</td><td>An extra trip per request, and avoidable CPU. A rejected request issues about 45 statements.</td></tr>
+<tr><td>A rejected request still runs the whole attempt (insert request, charge quota, try the update) and rolls it back to the savepoint.</td><td>Rejections are the common case in a burst, and they cost more than grants.</td></tr>
+</table>
+
+<h2>2 · What the measurements show</h2>
+<p>One <code>api</code> container, PostgreSQL, k6 and the workers on one laptop VM (Docker Desktop, 8 cores). Every request used a fresh customer, so only the inventory row was shared. 15 s per step; p99 of HTTP duration. Treat absolute numbers as indicative; the shape is what matters.</p>
+<div class="card">
+<svg viewBox="0 0 1000 330" role="img" aria-label="p99 latency by request rate, log scale">
+ <line x1="70" y1="270.0" x2="970" y2="270.0" class="grid"/><text x="62" y="274.0" class="small" text-anchor="end">10 ms</text><line x1="70" y1="190.00000000000003" x2="970" y2="190.00000000000003" class="grid"/><text x="62" y="194.00000000000003" class="small" text-anchor="end">100 ms</text><line x1="70" y1="110.00000000000001" x2="970" y2="110.00000000000001" class="grid"/><text x="62" y="114.00000000000001" class="small" text-anchor="end">1 s</text><line x1="70" y1="30.0" x2="970" y2="30.0" class="grid"/><text x="62" y="34.0" class="small" text-anchor="end">10 s</text><line x1="70" y1="175.9126992755455" x2="970" y2="175.9126992755455" class="target"/><text x="970" y="169.9126992755455" class="redt" text-anchor="end">target p99 = 150 ms</text><polyline points="160,208 340,189 520,186 700,182 880,173" class="ln s-succ"/><circle cx="160" cy="208" r="4" class="dot s-succ"/><text x="168" y="201" class="tiny">59</text><circle cx="340" cy="189" r="4" class="dot s-succ"/><text x="348" y="182" class="tiny">104</text><circle cx="520" cy="186" r="4" class="dot s-succ"/><text x="528" y="179" class="tiny">113</text><circle cx="700" cy="182" r="4" class="dot s-succ"/><text x="708" y="175" class="tiny">125</text><circle cx="880" cy="173" r="4" class="dot s-succ"/><text x="888" y="166" class="tiny">164</text><polyline points="160,219 340,223 520,230 700,168 880,57" class="ln s-rej"/><circle cx="160" cy="219" r="4" class="dot s-rej"/><text x="168" y="212" class="tiny">44</text><circle cx="340" cy="223" r="4" class="dot s-rej"/><text x="348" y="216" class="tiny">39</text><circle cx="520" cy="230" r="4" class="dot s-rej"/><text x="528" y="223" class="tiny">32</text><circle cx="700" cy="168" r="4" class="dot s-rej"/><text x="708" y="161" class="tiny">188</text><circle cx="880" cy="57" r="4" class="dot s-rej"/><text x="888" y="50" class="tiny">4.6 s</text><polyline points="160,153 340,231 520,209 700,223 880,32" class="ln s-rej2"/><circle cx="160" cy="153" r="4" class="dot s-rej2"/><text x="168" y="146" class="tiny">286</text><circle cx="340" cy="231" r="4" class="dot s-rej2"/><text x="348" y="224" class="tiny">31</text><circle cx="520" cy="209" r="4" class="dot s-rej2"/><text x="528" y="202" class="tiny">58</text><circle cx="700" cy="223" r="4" class="dot s-rej2"/><text x="708" y="216" class="tiny">39</text><circle cx="880" cy="32" r="4" class="dot s-rej2"/><text x="888" y="25" class="tiny">9.5 s</text><text x="160" y="296" class="small" text-anchor="middle">5/s</text><text x="340" y="296" class="small" text-anchor="middle">20/s</text><text x="520" y="296" class="small" text-anchor="middle">50/s</text><text x="700" y="296" class="small" text-anchor="middle">100/s</text><text x="880" y="296" class="small" text-anchor="middle">200/s</text>
+ <text x="500.0" y="322" class="small" text-anchor="middle">offered load on ONE inventory row (requests per second) · 15 s per step</text>
+ <g transform="translate(80,24)">
+   <circle cx="0" cy="0" r="5" class="dot s-succ"/><text x="10" y="4" class="small">hold granted</text>
+   <circle cx="110" cy="0" r="5" class="dot s-rej"/><text x="120" y="4" class="small">stored rejection (today)</text>
+   <circle cx="300" cy="0" r="5" class="dot s-rej2"/><text x="310" y="4" class="small">rejection + auto-prepare / no reset (experiment)</text>
+ </g>
+</svg></div>
+<table>
+<tr><th>Rate</th><th>Granted: median / p95 / p99</th><th>Rejected (today): median / p95 / p99</th></tr>
+<tr><td>5/s</td><td>14 / 26 / 59 ms</td><td>21 / 32 / 44 ms</td></tr>
+<tr><td>20/s</td><td>9 / 33 / 104 ms</td><td>11 / 23 / 39 ms</td></tr>
+<tr><td>50/s</td><td>7 / 60 / 113 ms</td><td>8 / 17 / 32 ms</td></tr>
+<tr><td>100/s</td><td>5 / 28 / 125 ms</td><td>5 / 19 / 188 ms</td></tr>
+<tr><td>200/s</td><td>3 / 10 / 164 ms</td><td class="bad">1.2 s / 3.2 s / 4.6 s, 562 iterations dropped</td></tr>
+</table>
+
+<h3>What the database was doing</h3>
+<ul>
+<li><b>Under rejection load at 150/s, PostgreSQL used about 4.4 of 8 cores</b> (the api about 1.4). With statement auto-preparation and no connection reset, the same offered load used about 1.7 cores, and p99 at 100/s fell from 188 ms to 39 ms.</li>
+<li><b>At 200/s nearly every backend was "idle in transaction, waiting on the client".</b> The database was not busy; transactions were queueing behind a chatty client protocol. That is the signature of too many round trips, not of too little database.</li>
+<li><b>Correctness never moved.</b> The 2-minute scarce burst granted exactly 200 holds on a 200-unit pool, with zero drift afterwards. Overload shows up as latency and 503s, never as oversell.</li>
+</ul>
+<div class="callout"><b>Caveat.</b> The first step of each run includes JIT warm-up, which is why the 5/s tail looks worse than 20/s in the experiment series. Docker Desktop adds network and fsync cost that a Linux host would not. The baseline must be re-taken on the target hardware before committing to numbers; the plan below is ordered by evidence, not by promised speed-ups.</div>
+
+<h2>3 · The plan</h2>
+<p><b>Goal.</b> p99 &lt; 150 ms for a hold at 150 holds/s on one inventory row (the ADR-0004 safe limit), p99 &lt; 150 ms and 5xx &lt; 0.05% for the 300/s scarce burst (most of it rejected), and ≥ 500 holds/s per cell across the pools of a region, with zero oversell throughout. The strategy has one idea: <b>do less per hold, and lock the contended row for as little as possible.</b></p>
+
+<table>
+<tr><th style="width:5%">#</th><th style="width:27%">Change</th><th style="width:30%">What it does</th><th style="width:18%">Effect (estimate)</th><th>Risk / verification</th></tr>
+<tr><td><span class="pill p0">P0</span></td><td><b>Instrument and re-baseline</b></td><td>A span per phase of the use case, <code>pg_stat_statements</code>, per-phase round-trip counts; rerun the k6 steps on Linux hardware with k6 on a separate host.</td><td>No change; replaces estimates with numbers.</td><td>None. Do first; every later step is judged against it.</td></tr>
+<tr><td><span class="pill p1">P1</span></td><td><b>Cheap connection wins</b></td><td><code>Max Auto Prepare</code>, <code>No Reset On Close</code>; move <code>statement_timeout</code> / <code>lock_timeout</code> into connection startup options instead of two <code>SET LOCAL</code>s.</td><td>−2 trips, much less parse/plan CPU. Measured: rejection p99 at 100/s 188 → 39 ms.</td><td>Very low. A one-line configuration change; keep behind a setting.</td></tr>
+<tr><td><span class="pill p1">P2</span></td><td><b>Batch the per-line statements</b></td><td>One <code>NpgsqlBatch</code> for reservation, lines, event, quota ensure, quota charge, ledger and the idempotency response.</td><td>28 → about 12 trips; cost no longer grows with line count.</td><td>Low. Existing integration tests and the model test cover behaviour; add a trip-count assertion.</td></tr>
+<tr><td><span class="pill p1">P3</span></td><td><b>Lock late</b></td><td>Make the inventory <code>UPDATE</code> the last write before <code>COMMIT</code>; everything else is already written (and rolled back if it fails).</td><td>Row lock window 7 trips → 2. Per-row ceiling rises roughly in proportion.</td><td>Medium. Lock order must stay reservation → quota → inventory; concurrency tests (1,000 parallel, racing transitions) must stay green.</td></tr>
+<tr><td><span class="pill p1">P4</span></td><td><b>Cheap rejections</b></td><td>When the snapshot already read in the transaction shows no free capacity for any plan, skip the attempt and store the rejection directly; fold the Retry-After query into the snapshot read.</td><td>Rejection path ~45 → ~10 statements; removes the 200/s collapse.</td><td>Low for safety: only a conditional <code>UPDATE</code> can grant, so this can never oversell. A snapshot a few ms stale may reject a request that a returning hold could have served; acceptable, as it is for the existing sold-out cache.</td></tr>
+<tr><td><span class="pill p2">P5</span></td><td><b>One read for the decision</b></td><td>Combine idempotency claim, <code>now()</code>, cooldown, open-hold counts and snapshot into a single query.</td><td>5 trips → 1.</td><td>Low–medium. A larger SQL statement to keep readable; contract-test it against the domain rules.</td></tr>
+<tr><td><span class="pill p2">P6</span></td><td><b>The hold as one server-side call</b></td><td>A <code>hold_reservation()</code> function that charges quota, checks the share cap, runs the conditional inventory <code>UPDATE</code>, and writes request, lines, event, ledger and idempotency response, then returns the outcome.</td><td>Whole write in 1 trip; the row is locked for the function's microseconds plus the commit. Target 4 trips total (2 if the call is its own transaction).</td><td>Medium. Rules live in SQL as well as the domain (as ADR-0023 already requires for the capacity formula); keep the SQL ↔ domain agreement test and the model test. Migrations own the function.</td></tr>
+<tr><td><span class="pill p2">P7</span></td><td><b>Admit, don't queue</b></td><td>Per-pool concurrency limiter in the api (a few in flight per pool), <code>lock_timeout</code> 500 → 50–100 ms, an immediate 503 with <code>Retry-After</code> when a pool is saturated.</td><td>Bounds the tail: no more 15 s waits behind a hot row.</td><td>Low. Tune with P0 data; the client already retries with the same key.</td></tr>
+<tr><td><span class="pill p3">P8</span></td><td><b>Split the hot row (data only)</b></td><td>Cut a scarce pool into N slices (per cluster or host group); the planner already tries up to 4 plans, so spread the starting slice. Capacity reads sum the slices.</td><td>Per-row ceiling × N. This is the ADR-0004 growth step.</td><td>Low for code, real for operations (rebalancing slices). Trigger: <code>capacity_holds_per_row_rate</code> &gt; 120/s for 5 minutes.</td></tr>
+<tr><td><span class="pill p3">P9</span></td><td><b>Infrastructure</b></td><td>PgBouncer (transaction mode), fast local WAL, 3+ api replicas, group-commit tuning; keep <code>synchronous_commit</code> on.</td><td>Cheaper commits, more connections for the same load.</td><td>Needs the P0 baseline on real hardware; synchronous replication adds a trip to every commit (ADR-0018) and must be measured, not assumed.</td></tr>
+</table>
+
+<h3>Round trips and the row lock, before and after</h3>
+<p><b>Today</b> — 28 round trips, row locked for 7:</p>
+<div class="card">
+<svg viewBox="0 0 1000 200" role="presentation" aria-label="The 28 round trips of one three-line hold; the inventory row lock is held from trip 22 to trip 28">
+  <text x="20" y="58" class="lbl">Setup</text>
+<line x1="20" y1="62" x2="152" y2="62" class="phase-line"/>
+<text x="156" y="58" class="lbl">Read the world</text>
+<line x1="156" y1="62" x2="322" y2="62" class="phase-line"/>
+<text x="326" y="58" class="lbl">Write request</text>
+<line x1="326" y1="62" x2="526" y2="62" class="phase-line"/>
+<text x="530" y="58" class="lbl">Quota</text>
+<line x1="530" y1="62" x2="730" y2="62" class="phase-line"/>
+<text x="734" y="58" class="lbl">Inv.</text>
+<line x1="734" y1="62" x2="764" y2="62" class="phase-line"/>
+<text x="768" y="58" class="lbl">Finish</text>
+<line x1="768" y1="62" x2="968" y2="62" class="phase-line"/>
+<rect x="20" y="70" width="30" height="46" rx="4" class="c-setup"/>
+<text x="35.0" y="97.0" class="num" text-anchor="middle">1</text>
+<rect x="54" y="70" width="30" height="46" rx="4" class="c-setup"/>
+<text x="69.0" y="97.0" class="num" text-anchor="middle">2</text>
+<rect x="88" y="70" width="30" height="46" rx="4" class="c-setup"/>
+<text x="103.0" y="97.0" class="num" text-anchor="middle">3</text>
+<rect x="122" y="70" width="30" height="46" rx="4" class="c-setup"/>
+<text x="137.0" y="97.0" class="num" text-anchor="middle">4</text>
+<rect x="156" y="70" width="30" height="46" rx="4" class="c-read"/>
+<text x="171.0" y="97.0" class="num" text-anchor="middle">5</text>
+<rect x="190" y="70" width="30" height="46" rx="4" class="c-read"/>
+<text x="205.0" y="97.0" class="num" text-anchor="middle">6</text>
+<rect x="224" y="70" width="30" height="46" rx="4" class="c-read"/>
+<text x="239.0" y="97.0" class="num" text-anchor="middle">7</text>
+<rect x="258" y="70" width="30" height="46" rx="4" class="c-read"/>
+<text x="273.0" y="97.0" class="num" text-anchor="middle">8</text>
+<rect x="292" y="70" width="30" height="46" rx="4" class="c-read"/>
+<text x="307.0" y="97.0" class="num" text-anchor="middle">9</text>
+<rect x="326" y="70" width="30" height="46" rx="4" class="c-write"/>
+<text x="341.0" y="97.0" class="num" text-anchor="middle">10</text>
+<rect x="360" y="70" width="30" height="46" rx="4" class="c-write"/>
+<text x="375.0" y="97.0" class="num" text-anchor="middle">11</text>
+<rect x="394" y="70" width="30" height="46" rx="4" class="c-write"/>
+<text x="409.0" y="97.0" class="num" text-anchor="middle">12</text>
+<rect x="428" y="70" width="30" height="46" rx="4" class="c-write"/>
+<text x="443.0" y="97.0" class="num" text-anchor="middle">13</text>
+<rect x="462" y="70" width="30" height="46" rx="4" class="c-write"/>
+<text x="477.0" y="97.0" class="num" text-anchor="middle">14</text>
+<rect x="496" y="70" width="30" height="46" rx="4" class="c-write"/>
+<text x="511.0" y="97.0" class="num" text-anchor="middle">15</text>
+<rect x="530" y="70" width="30" height="46" rx="4" class="c-quota"/>
+<text x="545.0" y="97.0" class="num" text-anchor="middle">16</text>
+<rect x="564" y="70" width="30" height="46" rx="4" class="c-quota"/>
+<text x="579.0" y="97.0" class="num" text-anchor="middle">17</text>
+<rect x="598" y="70" width="30" height="46" rx="4" class="c-quota"/>
+<text x="613.0" y="97.0" class="num" text-anchor="middle">18</text>
+<rect x="632" y="70" width="30" height="46" rx="4" class="c-quota"/>
+<text x="647.0" y="97.0" class="num" text-anchor="middle">19</text>
+<rect x="666" y="70" width="30" height="46" rx="4" class="c-quota"/>
+<text x="681.0" y="97.0" class="num" text-anchor="middle">20</text>
+<rect x="700" y="70" width="30" height="46" rx="4" class="c-quota"/>
+<text x="715.0" y="97.0" class="num" text-anchor="middle">21</text>
+<rect x="734" y="70" width="30" height="46" rx="4" class="c-lock"/>
+<text x="749.0" y="97.0" class="num" text-anchor="middle">22</text>
+<rect x="768" y="70" width="30" height="46" rx="4" class="c-fin"/>
+<text x="783.0" y="97.0" class="num" text-anchor="middle">23</text>
+<rect x="802" y="70" width="30" height="46" rx="4" class="c-fin"/>
+<text x="817.0" y="97.0" class="num" text-anchor="middle">24</text>
+<rect x="836" y="70" width="30" height="46" rx="4" class="c-fin"/>
+<text x="851.0" y="97.0" class="num" text-anchor="middle">25</text>
+<rect x="870" y="70" width="30" height="46" rx="4" class="c-fin"/>
+<text x="885.0" y="97.0" class="num" text-anchor="middle">26</text>
+<rect x="904" y="70" width="30" height="46" rx="4" class="c-fin"/>
+<text x="919.0" y="97.0" class="num" text-anchor="middle">27</text>
+<rect x="938" y="70" width="30" height="46" rx="4" class="c-fin"/>
+<text x="953.0" y="97.0" class="num" text-anchor="middle">28</text>
+  <rect x="731" y="64" width="240" height="58" rx="6" class="lockbox"/>
+  <text x="990" y="150" class="lock-lbl" text-anchor="end">inventory row locked: 7 round trips</text>
+  <text x="990" y="168" class="small" text-anchor="end">update, 3 ledger, release, idem., commit + fsync</text>
+  <text x="20" y="150" class="small">1 box = 1 network round trip (client ⇄ PostgreSQL) · 31 SQL statements, 28 round trips for a 3-line request</text>
+</svg></div>
+<p><b>After P1–P4</b> — about 9 round trips, row locked for 2 (the update, then the commit):</p>
+<div class="card">
+<svg viewBox="0 0 1000 120" role="img" aria-label="After the quick wins: 9 round trips, row locked for 2">
+  <rect x="20" y="20" width="50" height="46" rx="4" class="c-setup"/>
+<text x="45.0" y="41.0" class="num" text-anchor="middle">1</text>
+<text x="45.0" y="55.0" class="tiny" text-anchor="middle">BEGIN</text>
+<rect x="74" y="20" width="50" height="46" rx="4" class="c-setup"/>
+<text x="99.0" y="41.0" class="num" text-anchor="middle">2</text>
+<text x="99.0" y="55.0" class="tiny" text-anchor="middle">claim</text>
+<rect x="128" y="20" width="50" height="46" rx="4" class="c-read"/>
+<text x="153.0" y="41.0" class="num" text-anchor="middle">3</text>
+<text x="153.0" y="55.0" class="tiny" text-anchor="middle">now</text>
+<rect x="182" y="20" width="50" height="46" rx="4" class="c-read"/>
+<text x="207.0" y="41.0" class="num" text-anchor="middle">4</text>
+<text x="207.0" y="55.0" class="tiny" text-anchor="middle">cooldown</text>
+<rect x="236" y="20" width="50" height="46" rx="4" class="c-read"/>
+<text x="261.0" y="41.0" class="num" text-anchor="middle">5</text>
+<text x="261.0" y="55.0" class="tiny" text-anchor="middle">open</text>
+<rect x="290" y="20" width="56" height="46" rx="4" class="c-read"/>
+<text x="318.0" y="41.0" class="num" text-anchor="middle">6</text>
+<text x="318.0" y="55.0" class="tiny" text-anchor="middle">snapshot</text>
+<rect x="350" y="20" width="186" height="46" rx="4" class="c-write"/>
+<text x="443.0" y="41.0" class="num" text-anchor="middle">7</text>
+<text x="443.0" y="55.0" class="tiny" text-anchor="middle">1 batch: all writes</text>
+<rect x="540" y="20" width="86" height="46" rx="4" class="c-lock"/>
+<text x="583.0" y="41.0" class="num" text-anchor="middle">8</text>
+<text x="583.0" y="55.0" class="tiny" text-anchor="middle">UPDATE inv.</text>
+<rect x="630" y="20" width="66" height="46" rx="4" class="c-fin"/>
+<text x="663.0" y="41.0" class="num" text-anchor="middle">9</text>
+<text x="663.0" y="55.0" class="tiny" text-anchor="middle">COMMIT</text>
+  <rect x="537" y="14" width="162" height="58" rx="6" class="lockbox"/>
+  <text x="540" y="92" class="lock-lbl">row locked: 2 round trips</text>
+  <text x="20" y="112" class="small">9 round trips · setup moved to connection options · writes batched · the contended row is the last write</text>
+</svg></div>
+<p><b>After P5–P6</b> — 4 round trips; the write is one server-side call:</p>
+<div class="card">
+<svg viewBox="0 0 1000 120" role="img" aria-label="Target: 4 round trips, row locked for about one">
+  <rect x="20" y="20" width="56" height="46" rx="4" class="c-setup"/>
+<text x="48.0" y="41.0" class="num" text-anchor="middle">1</text>
+<text x="48.0" y="55.0" class="tiny" text-anchor="middle">BEGIN</text>
+<rect x="80" y="20" width="226" height="46" rx="4" class="c-read"/>
+<text x="193.0" y="41.0" class="num" text-anchor="middle">2</text>
+<text x="193.0" y="55.0" class="tiny" text-anchor="middle">1 read: key + now + limits + snapshot</text>
+<rect x="310" y="20" width="326" height="46" rx="4" class="c-lock"/>
+<text x="473.0" y="41.0" class="num" text-anchor="middle">3</text>
+<text x="473.0" y="55.0" class="tiny" text-anchor="middle">hold_reservation()  — the whole write, server-side</text>
+<rect x="640" y="20" width="66" height="46" rx="4" class="c-fin"/>
+<text x="673.0" y="41.0" class="num" text-anchor="middle">4</text>
+<text x="673.0" y="55.0" class="tiny" text-anchor="middle">COMMIT</text>
+  <rect x="307" y="14" width="402" height="58" rx="6" class="lockbox"/>
+  <text x="310" y="92" class="lock-lbl">row locked: function time + commit</text>
+  <text x="20" y="112" class="small">4 round trips (or 2 with the write as its own implicit transaction) · decision still made by one conditional UPDATE inside the function</text>
+</svg></div>
+<p class="small" style="color:var(--mut)">The trip counts are exact for today's code (from the PostgreSQL log) and design counts for the later two; the latency they buy has to be measured at each step.</p>
+
+<h2>4 · Order of work and how we will know</h2>
+<ol class="steps">
+<li><b>P0</b>, then <b>P1</b> and <b>P4</b> first: smallest changes, and they remove the rejection-path collapse that dominates a burst.</li>
+<li><b>P2</b> then <b>P3</b>: the bulk of the latency and per-row throughput gain, still in C# and still covered by the current tests.</li>
+<li>Re-measure. If hot-row p99 at 150/s is under 150 ms on target hardware, stop there and keep <b>P6</b> as the next step. If not, do <b>P5</b>/<b>P6</b>.</li>
+<li><b>P7</b> alongside, since it caps the worst case regardless of the rest. <b>P8</b> only when the existing hot-row alert fires; it is a data change.</li>
+</ol>
+<table>
+<tr><th>Gate</th><th>Pass condition</th><th>Run with</th></tr>
+<tr><td>Correctness</td><td>No oversell; ledger = counters = reservations; all 146 tests green after every step</td><td><code>make test</code>, <code>/v1/admin/reconciliation</code></td></tr>
+<tr><td>Hold latency</td><td>p99 &lt; 150 ms at 150 holds/s on one row</td><td><code>load/k6/hot-row.js</code> (with the rate steps used in this report)</td></tr>
+<tr><td>Burst</td><td>300/s for 2 min on a 200-unit pool: p99 &lt; 150 ms, 5xx &lt; 0.05%, exactly 200 holds</td><td><code>load/k6/scarce-burst.js</code> (without the per-iteration admin call)</td></tr>
+<tr><td>Throughput</td><td>≥ 500 holds/s per region across the pools, p99 &lt; 150 ms</td><td><code>load/k6/hot-row.js</code> over several pools; <code>mixed.js</code></td></tr>
+<tr><td>Round trips</td><td>Asserted in a test: a hold of N lines issues ≤ the planned number of trips</td><td>Integration test counting statements</td></tr>
+</table>
+
+<h2>5 · Honest limits of this report</h2>
+<ul>
+<li>One machine, one api replica, Docker Desktop: the absolute numbers are not the production numbers. The comparison between configurations is what to trust.</li>
+<li>The <b>8 → 4 trip</b> and <b>lock-window</b> figures for P5–P6 are design counts; the throughput they unlock is proportional in theory and must be measured.</li>
+<li>The earlier scarce-burst run mixed a quota <code>PUT</code> into every iteration, which doubled the request count and added writes; it overstates the problem. The per-step series above isolates the hold.</li>
+<li>Not yet measured: <code>expiry-storm.js</code>, <code>mixed.js</code>, a multi-replica api, and synchronous replication.</li>
+</ul>
+
+<h2>6 · Result of steps 1–3 (added after implementation)</h2>
+<p>Steps P0–P4 are implemented. p99 in ms, same one-hot-row test as section 2, after a discarded warm-up; "after" shows two runs for granted holds and one for rejections.</p>
+<table>
+<tr><th>Rate</th><th>Granted before</th><th>Granted after</th><th>Rejected before</th><th>Rejected after</th></tr>
+<tr><td>5/s</td><td>59</td><td>32 · 36</td><td>44</td><td>40</td></tr>
+<tr><td>20/s</td><td>104</td><td>34 · 41</td><td>39</td><td>28</td></tr>
+<tr><td>50/s</td><td>113</td><td>30 · 30</td><td>32</td><td>38</td></tr>
+<tr><td>100/s</td><td>125</td><td>20 · 103</td><td>188</td><td>278</td></tr>
+<tr><td>200/s</td><td>164</td><td class="good">53 · 56</td><td class="bad">4,633</td><td class="good">126</td></tr>
+<tr><td>300/s</td><td>—</td><td class="bad">1,002</td><td>—</td><td>245</td></tr>
+</table>
+<ul>
+<li><b>Round trips per hold: 28 → 9</b>, the same for one line and four (asserted by a test). The row lock now covers the last batch and the commit.</li>
+<li><b>Target met up to 200 holds/s on one row</b> in these runs; it breaks between 200 and 300/s. Rejections no longer collapse at 200/s, but their tail at 100/s and 300/s is still above 150 ms and noisy.</li>
+<li><b>Two mistakes of mine, found and fixed:</b> the first connection settings never applied (no timeouts, so overload queued for tens of seconds), and a rewritten Retry-After query scanned every hold. Both now have a test or a bound.</li>
+<li><b>Unexplained:</b> one PostgreSQL server process exited with code 2 during an overloaded run and the server recovered itself.</li>
+<li><b>Still open:</b> Linux hardware, several api replicas, synchronous replication, the 2-minute scarce burst, and plan steps P5–P9. Details in <code>load/results/2026-11-16-hold-latency-steps-1-3.md</code>.</li>
+</ul>
+<footer>Generated from the repository at the time of writing. Sources: PostgreSQL statement log of a single submit; k6 runs at 5, 20, 50, 100 and 200 requests/s against one inventory row; <code>docker stats</code> and <code>pg_stat_activity</code> sampled under load; <code>docs/architecture/load-model.md</code>; <code>load/results/2026-11-16-scarce-burst.md</code>.</footer>
+</div></body></html>

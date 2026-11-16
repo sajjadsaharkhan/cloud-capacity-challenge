@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "Arvan.Capacity.Presentation.BackgroundService": {
+      "commandName": "Project",
+      "applicationUrl": "http://localhost:5081",
+      "environmentVariables": { "ASPNETCORE_ENVIRONMENT": "Development" }
+    }
+  }
+}

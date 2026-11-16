@@ -1,0 +1,103 @@
+# One command brings up everything: `make up`.
+# Profiles: `events` adds RabbitMQ (the relay logs events instead of publishing without it),
+# `observability` adds the OpenTelemetry Collector, Prometheus and Grafana.
+
+x-service: &service
+  build: .
+  image: arvan-capacity:local
+  environment: &env
+    ConnectionStrings__Database: Host=postgres;Port=5432;Database=capacity;Username=capacity;Password=capacity
+    OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  depends_on:
+    migrator:
+      condition: service_completed_successfully
+
+services:
+  postgres:
+    image: postgres:17
+    # pg_stat_statements: which statements a hold runs, and what each costs (see deploy/postgres-init.sql).
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all", "-c", "max_connections=300",
+              # Local load tests only: fewer checkpoints, so disk stalls do not land in the middle of a measurement.
+              "-c", "checkpoint_timeout=30min", "-c", "max_wal_size=4GB"]
+    environment:
+      POSTGRES_USER: capacity
+      POSTGRES_PASSWORD: capacity
+      POSTGRES_DB: capacity
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres-init.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U capacity -d capacity"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  rabbitmq:
+    profiles: [events]
+    image: rabbitmq:4-management
+    ports: ["5672:5672", "15672:15672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrator:
+    build: .
+    image: arvan-capacity:local
+    command: ["dotnet", "/app/api/Arvan.Capacity.Presentation.Api.dll", "migrate"]
+    environment:
+      ConnectionStrings__Database: Host=postgres;Port=5432;Database=capacity;Username=capacity;Password=capacity
+      Database__SeedDemoData: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *service
+    ports: ["8080:8080"]
+    environment:
+      <<: *env
+      Capacity__Roles: api
+
+  sweeper:
+    <<: *service
+    command: ["dotnet", "/app/worker/Arvan.Capacity.Presentation.BackgroundService.dll"]
+    environment:
+      <<: *env
+      Capacity__Roles: sweeper
+
+  relay:
+    <<: *service
+    command: ["dotnet", "/app/worker/Arvan.Capacity.Presentation.BackgroundService.dll"]
+    environment:
+      <<: *env
+      Capacity__Roles: relay
+      RabbitMq__Uri: ${RABBITMQ_URI:-}
+
+  otel-collector:
+    profiles: [observability]
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes: ["./deploy/observability/otel-collector.yaml:/etc/otel/config.yaml:ro"]
+
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:latest
+    volumes: ["./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro", "./deploy/observability/alerts.yml:/etc/prometheus/alerts.yml:ro"]
+    ports: ["9090:9090"]
+
+  grafana:
+    profiles: [observability]
+    image: grafana/grafana:latest
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+
+volumes:
+  pgdata:

@@ -1,0 +1,23 @@
+<Solution>
+  <Folder Name="/Application/">
+    <Project Path="Application/Arvan.Capacity.Application/Arvan.Capacity.Application.csproj" />
+  </Folder>
+  <Folder Name="/Domain/">
+    <Project Path="Domain/Arvan.Capacity.Domain/Arvan.Capacity.Domain.csproj" />
+  </Folder>
+  <Folder Name="/Framework/">
+    <Project Path="Framework/Arvan.Capacity.Framework.Domain/Arvan.Capacity.Framework.Domain.csproj" />
+    <Project Path="Framework/Arvan.Capacity.Framework.Presentation/Arvan.Capacity.Framework.Presentation.csproj" />
+  </Folder>
+  <Folder Name="/Infrastructure/">
+    <Project Path="Infrastructure/Arvan.Capacity.Infrastructure/Arvan.Capacity.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/Presentation/">
+    <Project Path="Presentation/Arvan.Capacity.Presentation.Api/Arvan.Capacity.Presentation.Api.csproj" />
+    <Project Path="Presentation/Arvan.Capacity.Presentation.BackgroundService/Arvan.Capacity.Presentation.BackgroundService.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="../tests/Arvan.Capacity.Invariants.Tests/Arvan.Capacity.Invariants.Tests.csproj" />
+    <Project Path="../tests/Arvan.Capacity.ArchitectureTests/Arvan.Capacity.ArchitectureTests.csproj" />
+  </Folder>
+</Solution>

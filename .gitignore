@@ -1,0 +1,10 @@
+# .NET build output
+bin/
+obj/
+TestResults/
+*.user
+.vs/
+.idea/
+
+# OS
+.DS_Store

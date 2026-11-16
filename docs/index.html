@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cloud Capacity Allocation: Design Guide</title>
+<meta name="description" content="Design guide for a cloud capacity reservation service: problem, decisions, API, state machines, idempotency, rate limits, tests and load results.">
+<style>
+:root{--bg:#fff;--panel:#f6f8fa;--text:#1f2328;--muted:#656d76;--line:#d0d7de;--accent:#0969da;--accent-bg:#ddf4ff;--ok:#1a7f37;--warn:#9a6700;--bad:#cf222e;--code:#f3f4f6;--side:300px;
+ --hl-kw:#cf222e;--hl-str:#0a3069;--hl-num:#0550ae;--hl-com:#6e7781;--hl-fn:#8250df;--hl-type:#953800;--hl-attr:#116329}
+:root[data-theme=dark]{--bg:#0d1117;--panel:#161b22;--text:#e6edf3;--muted:#8b949e;--line:#30363d;--accent:#4493f8;--accent-bg:#102a4c;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--code:#161b22;
+ --hl-kw:#ff7b72;--hl-str:#a5d6ff;--hl-num:#79c0ff;--hl-com:#8b949e;--hl-fn:#d2a8ff;--hl-type:#ffa657;--hl-attr:#7ee787}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:72px}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,Vazirmatn,Tahoma,sans-serif}
+[dir=rtl] body{font-family:Vazirmatn,Tahoma,system-ui,sans-serif}
+header{position:sticky;top:0;z-index:20;display:flex;gap:12px;align-items:center;padding:10px 16px;background:var(--bg);border-bottom:1px solid var(--line)}
+header h1{font-size:16px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+button,select{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 11px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:disabled{opacity:.5;cursor:default}
+#menu{display:none}
+.layout{display:flex}
+nav{position:sticky;top:53px;align-self:flex-start;width:var(--side);height:calc(100vh - 53px);overflow:auto;padding:14px;border-inline-end:1px solid var(--line);background:var(--panel);flex:none}
+nav input{width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text);font:inherit;margin-bottom:10px}
+nav h4,nav summary.sec{margin:16px 0 4px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+nav a{display:block;padding:4px 10px;border-radius:6px;color:var(--text);text-decoration:none;font-size:14.5px;line-height:1.4}
+nav a:hover{background:var(--line)}
+nav a.active{background:var(--accent-bg);color:var(--accent);font-weight:600}
+nav details{margin:0}
+nav summary{cursor:pointer;list-style:none;padding:4px 10px;border-radius:6px;font-size:14.5px;user-select:none}
+nav summary::-webkit-details-marker{display:none}
+nav summary::before{content:"▸";display:inline-block;width:1em;color:var(--muted);transition:transform .15s}
+nav details[open]>summary::before{transform:rotate(90deg)}
+[dir=rtl] nav summary::before{content:"◂"}
+[dir=rtl] nav details[open]>summary::before{transform:rotate(-90deg)}
+nav summary:hover{background:var(--line)}
+nav summary.sec{padding:4px 0}
+nav .sub{padding-inline-start:14px;border-inline-start:1px solid var(--line);margin-inline-start:14px}
+nav .num{color:var(--muted);font-variant-numeric:tabular-nums;margin-inline-end:6px;font-size:12.5px}
+main{flex:1;min-width:0;max-width:940px;margin:0 auto;padding:24px 28px 80px}
+.pager{display:flex;justify-content:space-between;gap:10px;margin-top:48px;padding-top:16px;border-top:1px solid var(--line)}
+.crumb{font-size:13px;color:var(--muted);margin-bottom:4px}
+.note{font-size:14px;color:var(--muted);border:1px dashed var(--line);border-radius:6px;padding:6px 10px;margin-bottom:12px}
+article h1{font-size:2rem;margin:.2em 0 .5em;line-height:1.25}
+article h2{margin-top:2em;padding-bottom:.3em;border-bottom:1px solid var(--line);line-height:1.3}
+article h3{margin-top:1.6em}
+article a{color:var(--accent)}
+article blockquote{margin:1em 0;padding:.6em 1em;border-inline-start:4px solid var(--accent);background:var(--accent-bg);border-radius:0 6px 6px 0}
+article blockquote p{margin:.4em 0}
+article hr{border:0;border-top:1px solid var(--line);margin:2.2em 0}
+table{border-collapse:collapse;display:block;overflow-x:auto;max-width:100%;margin:1em 0;font-size:14.5px}
+th,td{border:1px solid var(--line);padding:6px 11px;vertical-align:top;text-align:start}
+th{background:var(--panel)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--panel) 55%,transparent)}
+code{background:var(--code);padding:.12em .36em;border-radius:4px;font:.88em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;direction:ltr;unicode-bidi:embed}
+pre{position:relative;background:var(--code);border:1px solid var(--line);padding:14px;border-radius:8px;overflow:auto;direction:ltr;text-align:left;line-height:1.5}
+pre code{background:none;padding:0;font-size:13.5px}
+pre .lang{position:absolute;top:6px;right:62px;font:11px ui-monospace,monospace;color:var(--muted);text-transform:uppercase}
+.copy{position:absolute;top:6px;right:6px;font-size:12px;padding:2px 8px}
+/* syntax highlighting (highlight.js classes) */
+.hljs-keyword,.hljs-selector-tag,.hljs-meta .hljs-keyword{color:var(--hl-kw)}
+.hljs-string,.hljs-regexp,.hljs-template-string{color:var(--hl-str)}
+.hljs-number,.hljs-literal,.hljs-symbol,.hljs-bullet{color:var(--hl-num)}
+.hljs-comment,.hljs-quote{color:var(--hl-com);font-style:italic}
+.hljs-title,.hljs-title.function_,.hljs-section{color:var(--hl-fn)}
+.hljs-type,.hljs-built_in,.hljs-title.class_{color:var(--hl-type)}
+.hljs-attr,.hljs-attribute,.hljs-name,.hljs-meta,.hljs-variable,.hljs-params{color:var(--hl-attr)}
+.mermaid{display:flex;justify-content:center;margin:1.4em 0;padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow-x:auto;direction:ltr}
+.widget{margin:1.4em 0;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.widget h5{margin:0 0 8px;font-size:15px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.chip{padding:6px 12px;border-radius:999px;border:1px solid var(--accent);color:var(--accent);background:var(--bg)}
+.state{display:inline-block;padding:4px 14px;border-radius:999px;font-weight:700;background:var(--accent);color:#fff}
+.state.final{background:var(--ok)}
+.state.bad{background:var(--bad)}
+.log{font:13px ui-monospace,Menlo,monospace;color:var(--muted);min-height:3.2em;margin-top:6px;direction:ltr;text-align:left}
+.bucket{display:flex;gap:3px;margin:10px 0;direction:ltr}
+.tok{width:100%;max-width:22px;height:22px;border-radius:4px;background:var(--line)}
+.tok.on{background:var(--ok)}
+.progress{position:fixed;top:0;inset-inline:0;height:3px;background:var(--accent);transform-origin:left;transform:scaleX(0);z-index:30}
+@media(max-width:860px){
+ #menu{display:inline-block}
+ nav{position:fixed;inset-block:53px 0;inset-inline-start:0;z-index:15;transform:translateX(-105%);transition:transform .2s;width:min(var(--side),86vw)}
+ [dir=rtl] nav{transform:translateX(105%)}
+ nav.open{transform:none}
+ main{padding:18px 16px 60px}
+}
+@media print{header,nav,.pager,.copy{display:none}main{max-width:none}}
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<header>
+  <button id="menu" aria-label="Menu">☰</button>
+  <h1 id="title">Cloud Capacity Allocation: Design Guide</h1>
+  <select id="lang" aria-label="Language"><option value="en">English</option><option value="fa">فارسی</option></select>
+  <button id="theme" aria-label="Toggle theme">◐</button>
+</header>
+<div class="layout">
+  <nav id="nav"><input id="q" type="search" placeholder="Filter…" aria-label="Filter"><div id="toc"></div></nav>
+  <main><div class="crumb" id="crumb"></div><article id="doc">Loading…</article><div class="pager" id="pager"></div></main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/http.min.js"></script>
+<script>
+// ===================== Navigation =====================
+// Page: [id, en, fa, path?]. Without a path, the page is guide/<lang>/<id>.md.
+// Section: {en, fa, collapsible?, items:[ page | {en, fa, items:[page…]} ]}
+const ADR = (n, file, en, fa) => ["adr-" + n, en, fa, "adr/" + n + "-" + file + ".md", n];
+const NAV = [
+  {en:"Start", fa:"شروع", items:[
+    ["00-start-here","Start here","از اینجا شروع کنید"],
+    ["glossary","Glossary of terms","واژه‌نامه"]]},
+  {en:"Why", fa:"چرا", items:[
+    ["01-problem","The problem","مسئله"],
+    ["02-assumptions-constraints","Assumptions and constraints","فرض‌ها و محدودیت‌ها"]]},
+  {en:"What", fa:"چه", items:[
+    ["03-solution-overview","Solution overview","نمای کلی راه‌حل"]]},
+  {en:"Decisions (ADRs)", fa:"تصمیم‌ها (ADR)", collapsible:true, items:[
+    ["04-decisions","Overview of all decisions","مرور همه‌ی تصمیم‌ها"],
+    ["adr-index","ADR index and template","فهرست و قالب ADR","adr/README.md"],
+    {en:"Boundary and model", fa:"مرز و مدل", items:[
+      ADR("0001","system-boundary","System boundary","مرز سیستم"),
+      ADR("0002","resource-model","Resource model","مدل منابع"),
+      ADR("0024","lean-data-model","Lean data model","مدل داده‌ی کمینه")]},
+    {en:"Correctness", fa:"درستی", items:[
+      ADR("0003","ledger-and-counters","Ledger and counters","Ledger و شمارنده‌ها"),
+      ADR("0004","concurrency-control","Concurrency control","کنترل هم‌زمانی"),
+      ADR("0006","idempotency","Idempotency","Idempotency"),
+      ADR("0007","quota-in-the-ledger","Quota in the ledger","سهمیه در ledger")]},
+    {en:"Request lifecycle", fa:"چرخه‌ی عمر درخواست", items:[
+      ADR("0005","synchronous-hold-with-lease","Synchronous hold with lease","hold هم‌زمان با lease"),
+      ADR("0021","shortage-responses-and-wait-queue","Shortage answers and wait","پاسخ کمبود و انتظار"),
+      ADR("0022","two-state-machines-effective-state","Two state machines","دو ماشین حالت")]},
+    {en:"Architecture and resilience", fa:"معماری و تاب‌آوری", items:[
+      ADR("0008","failure-mode-and-regional-cells","Failure mode, regional cells","حالت خرابی و cell منطقه‌ای"),
+      ADR("0009","transactional-outbox","Transactional outbox","Outbox تراکنشی"),
+      ADR("0010","modular-monolith","Modular monolith","Modular monolith"),
+      ADR("0023","clean-architecture","Clean architecture","Clean architecture")]},
+    {en:"Technology", fa:"تکنولوژی", items:[
+      ADR("0011","language-dotnet","C# on .NET 10","C# روی ‎.NET 10"),
+      ADR("0012","database-postgresql","PostgreSQL","PostgreSQL"),
+      ADR("0013","data-access-npgsql-dapper","Npgsql and Dapper","Npgsql و Dapper"),
+      ADR("0014","rest-api","REST API","REST API"),
+      ADR("0015","no-redis-in-v1","No Redis in v1","بدون Redis"),
+      ADR("0016","message-broker-rabbitmq","RabbitMQ","RabbitMQ"),
+      ADR("0017","no-workflow-engine","No workflow engine","بدون workflow engine"),
+      ADR("0018","postgresql-high-availability","PostgreSQL HA","HA در PostgreSQL"),
+      ADR("0019","observability","Observability","مشاهده‌پذیری"),
+      ADR("0020","delivery-and-testing","Delivery and testing","تحویل و آزمون")]}]},
+  {en:"API", fa:"API", collapsible:true, items:[
+    ["api-customer","Customer panel API","API پنل مشتری"],
+    ["api-admin","Admin panel API","API پنل ادمین"]]},
+  {en:"How it is built", fa:"چگونه ساخته شده", items:[
+    ["05-data-model","Data model and ERD","مدل داده و ERD"],
+    ["06-state-machines","State machines","ماشین‌های حالت"],
+    ["07-core-logic","Core logic","منطق اصلی"],
+    ["08-idempotency","Idempotency","Idempotency"],
+    ["09-rate-limits-fairness","Rate limits and fairness","محدودیت نرخ و انصاف"],
+    ["10-code-structure","Code structure","ساختار کد"]]},
+  {en:"Proof", fa:"اثبات", items:[
+    ["11-edge-cases","Edge cases","حالت‌های لبه"],
+    ["12-testing","Testing and coverage","آزمون و پوشش"],
+    ["13-load-test","Load test","آزمون بار"]]},
+  {en:"Honesty", fa:"صداقت", items:[
+    ["14-tradeoffs-growth","Trade-offs and growth","مصالحه‌ها و رشد"]]}
+];
+// Flat list of pages in reading order, each with its trail of menu names.
+const PAGES = [];
+(function walk(items, trail){ items.forEach(x => Array.isArray(x)
+  ? PAGES.push({id:x[0], en:x[1], fa:x[2], path:x[3], num:x[4], trail})
+  : walk(x.items, [...trail, x])); })(NAV, []);
+const byId = id => PAGES.find(p => p.id === id);
+const byPath = path => PAGES.find(p => p.path === path);
+
+const UI = {
+  en:{title:"Cloud Capacity Allocation: Design Guide",filter:"Filter…",prev:"← Previous",next:"Next →",copy:"Copy",
+      missing:"This page is not available in this language yet.",source:"Source document",englishOnly:"",notFound:"Page not found."},
+  fa:{title:"تخصیص ظرفیت ابری: راهنمای طراحی",filter:"فیلتر…",prev:"قبلی →",next:"← بعدی",copy:"کپی",
+      missing:"این صفحه هنوز به این زبان نوشته نشده است.",source:"سند منبع",englishOnly:"متن این سند فقط به انگلیسی است.",notFound:"صفحه پیدا نشد."}
+};
+
+// ===================== Helpers =====================
+const $ = s => document.querySelector(s);
+const stored = k => { try { return localStorage.getItem(k) } catch(e){ return null } };
+const store = (k,v) => { try { localStorage.setItem(k,v) } catch(e){} };
+const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const slug = s => s.toLowerCase().trim().replace(/[^\p{L}\p{N}\s-]/gu,"").replace(/\s+/g,"-");
+let lang = stored("lang") || "en", current = null, currentPath = "";
+
+function setTheme(t){ document.documentElement.dataset.theme = t; store("theme",t);
+  mermaid.initialize({startOnLoad:false,theme:t==="dark"?"dark":"default",securityLevel:"strict"}); }
+setTheme(stored("theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+$("#theme").onclick = () => { setTheme(document.documentElement.dataset.theme==="dark"?"light":"dark"); route(); };
+$("#menu").onclick = () => $("#nav").classList.toggle("open");
+$("#lang").onchange = e => { lang = e.target.value; store("lang",lang); applyLang(); route(); };
+$("#q").oninput = buildToc;
+
+function applyLang(){
+  document.documentElement.lang = lang; document.documentElement.dir = lang==="fa" ? "rtl" : "ltr";
+  $("#lang").value = lang; $("#title").textContent = document.title = UI[lang].title; $("#q").placeholder = UI[lang].filter;
+}
+
+// ===================== Menu =====================
+function buildToc(){
+  const f = $("#q").value.trim().toLowerCase();
+  const name = x => x[lang];
+  const pageLink = p => {
+    const label = (lang==="fa"?p[2]:p[1]);
+    if (f && !label.toLowerCase().includes(f) && !(p[4]||"").includes(f)) return "";
+    return `<a href="#${p[0]}" class="${current && current.id===p[0] ? "active" : ""}">${p[4]?`<span class="num">${p[4]}</span>`:""}${esc(label)}</a>`;
+  };
+  const containsCurrent = items => items.some(x => Array.isArray(x) ? current && x[0]===current.id : containsCurrent(x.items));
+  const render = (items, depth) => items.map(x => {
+    if (Array.isArray(x)) return pageLink(x);
+    const inner = render(x.items, depth+1);
+    if (!inner) return "";
+    const open = f || containsCurrent(x.items) ? " open" : "";
+    return `<details${open}><summary>${esc(name(x))}</summary><div class="sub">${inner}</div></details>`;
+  }).join("");
+  $("#toc").innerHTML = NAV.map(sec => {
+    const inner = render(sec.items, 0);
+    if (!inner) return "";
+    if (!sec.collapsible) return `<h4>${esc(name(sec))}</h4>${inner}`;
+    const open = f || containsCurrent(sec.items) ? " open" : "";
+    return `<details${open}><summary class="sec">${esc(name(sec))}</summary>${inner}</details>`;
+  }).join("");
+}
+
+// ===================== Page loading =====================
+async function fetchText(path){ const r = await fetch(path); if (!r.ok) throw new Error(r.status); return r.text(); }
+
+async function load(page, docPath){
+  current = page; const doc = $("#doc");
+  currentPath = docPath || page.path || `guide/${lang}/${page.id}.md`;
+  let md, note = "";
+  try { md = await fetchText(currentPath); }
+  catch(e){
+    if (page && !page.path && lang !== "en") {           // fall back to English with a notice
+      try { md = await fetchText(`guide/en/${page.id}.md`); currentPath = `guide/en/${page.id}.md`; note = UI[lang].missing; } catch(_){}
+    }
+    if (md === undefined) md = `# ${page ? esc(page[lang]) : ""}\n\n> ${UI[lang].notFound}`;
+  }
+  if ((page?.path || docPath) && lang !== "en") note = UI[lang].englishOnly;
+  doc.innerHTML = (note ? `<div class="note">${note}</div>` : "") + marked.parse(md);
+  enhance(doc);
+  try { await mermaid.run({querySelector:"#doc .mermaid"}); } catch(e){ console.warn("mermaid", e); }
+  initWidgets(doc);
+  // breadcrumb
+  $("#crumb").textContent = page ? page.trail.map(t => t[lang]).join(" › ") : `${UI[lang].source} › ${docPath}`;
+  buildToc(); $("#nav").classList.remove("open");
+  const i = page ? PAGES.indexOf(page) : -1, p = PAGES[i-1], n = PAGES[i+1];
+  $("#pager").innerHTML = page
+    ? `<button ${p?"":"disabled"} data-go="${p?.id||""}">${UI[lang].prev}${p?" · "+esc(p[lang]):""}</button><button ${n?"":"disabled"} data-go="${n?.id||""}">${n?esc(n[lang])+" · ":""}${UI[lang].next}</button>`
+    : "";
+  $("#pager").querySelectorAll("[data-go]").forEach(b => b.onclick = () => location.hash = b.dataset.go);
+  window.scrollTo(0,0);
+}
+
+function enhance(doc){
+  // heading ids, for in-page anchors
+  doc.querySelectorAll("h1,h2,h3,h4").forEach(h => { if (!h.id) h.id = slug(h.textContent); });
+  // mermaid
+  doc.querySelectorAll("pre > code.language-mermaid").forEach(c => {
+    const d = document.createElement("div"); d.className = "mermaid"; d.textContent = c.textContent; c.parentElement.replaceWith(d);
+  });
+  // syntax highlighting + copy
+  doc.querySelectorAll("pre > code").forEach(code => {
+    const m = code.className.match(/language-([\w-]+)/), lng = m && m[1];
+    if (lng && hljs.getLanguage(lng)) hljs.highlightElement(code);
+    const pre = code.parentElement;
+    if (lng && lng !== "text") { const t = document.createElement("span"); t.className = "lang"; t.textContent = lng; pre.appendChild(t); }
+    const b = document.createElement("button"); b.className = "copy"; b.textContent = UI[lang].copy;
+    b.onclick = () => { navigator.clipboard?.writeText(code.textContent); b.textContent = "✓"; setTimeout(() => b.textContent = UI[lang].copy, 1200); };
+    pre.appendChild(b);
+  });
+  // links: route .md files inside the site, keep external links external
+  doc.querySelectorAll("a[href]").forEach(a => {
+    const href = a.getAttribute("href");
+    if (/^(https?:|mailto:)/.test(href)) { a.target = "_blank"; a.rel = "noopener"; return; }
+    if (href.startsWith("#")) {
+      const id = href.slice(1);
+      if (!byId(id) && !id.startsWith("doc/")) a.onclick = e => { e.preventDefault(); document.getElementById(slug(decodeURIComponent(id)))?.scrollIntoView(); };
+      return;
+    }
+    const url = new URL(href, "http://site/" + currentPath);
+    const path = url.pathname.slice(1);
+    if (!path.endsWith(".md")) { a.href = path + url.hash; return; }
+    const target = byPath(path);
+    a.href = target ? "#" + target.id : "#doc/" + path;
+  });
+}
+
+function route(){
+  const h = decodeURIComponent(location.hash.slice(1));
+  if (h.startsWith("doc/")) return load(null, h.slice(4));
+  load(byId(h) || PAGES[0]);
+}
+addEventListener("hashchange", route);
+addEventListener("scroll", () => { const h = document.documentElement;
+  $("#progress").style.transform = `scaleX(${h.scrollTop / Math.max(1, h.scrollHeight - h.clientHeight)})`; }, {passive:true});
+
+// ===================== Widgets =====================
+const SM = { NEW:{submit:["HELD","WAITING","REJECTED"]}, WAITING:{promote:["HELD"],cancel:["CANCELLED"],timeout:["REJECTED"]},
+  HELD:{extend:["HELD"],confirm:["CONFIRMED"],cancel:["CANCELLED"],expire:["EXPIRED"]} };
+const FINAL = ["CONFIRMED","REJECTED","CANCELLED","EXPIRED"];
+const EVENTS = ["submit","promote","extend","confirm","cancel","expire","timeout"];
+const GUARD = {submit:"capacity fits → HELD, temporary shortage + wait → WAITING, else REJECTED", promote:"before wait_deadline and fits", extend:"once only, before expires_at",
+  confirm:"before expires_at", cancel:"before the deadline", expire:"after expires_at (timer)", timeout:"after wait_deadline (timer)"};
+function initWidgets(root){
+  root.querySelectorAll('[data-widget="request-sm"]').forEach(el => {
+    let state = "NEW", extended = false, log = "Start: NEW. Choose an event.";
+    const draw = () => {
+      el.className = "widget";
+      el.innerHTML = `<h5>Request state machine</h5><div>State: <span class="state ${FINAL.includes(state)?(state==="CONFIRMED"?"final":"bad"):""}">${state}</span> ${extended?"<small>(extended)</small>":""}</div><div class="chips"></div><div class="log"></div><button data-r>Reset</button>`;
+      const chips = el.querySelector(".chips");
+      EVENTS.forEach(ev => { const b = document.createElement("button"); b.className = "chip"; b.textContent = ev; b.title = GUARD[ev]; b.onclick = () => fire(ev); chips.appendChild(b); });
+      el.querySelector(".log").textContent = log;
+      el.querySelector("[data-r]").onclick = () => { state = "NEW"; extended = false; log = "Reset. State: NEW."; draw(); };
+    };
+    const fire = ev => {
+      const t = (SM[state] || {})[ev];
+      if (!t) { log = `✗ ${ev} on ${state}: 409 INVALID_STATE_TRANSITION (state unchanged)`; return draw(); }
+      if (ev === "extend" && extended) { log = "✗ extend: already extended once → 409"; return draw(); }
+      let to = t[0]; if (ev === "submit") to = t[Math.floor(Math.random() * 3)];
+      if (ev === "extend") extended = true;
+      log = `✓ ${state} --${ev}--> ${to}` + (ev === "submit" ? "  (random outcome: fits / temporary shortage with wait / rejected)" : "");
+      state = to; draw();
+    };
+    draw();
+  });
+  root.querySelectorAll('[data-widget="token-bucket"]').forEach(el => {
+    const BURST = 20, RATE = 10; let tokens = BURST, ok = 0, lim = 0, last = performance.now(), storm;
+    el.className = "widget";
+    el.innerHTML = `<h5>Token bucket: submit group (burst 20, refill 10 per second)</h5><div class="bucket"></div><div class="chips"><button data-a="one">Send 1 request</button><button data-a="ten">Send 10 at once</button><button data-a="storm">Retry storm (5 s)</button><button data-a="reset">Reset</button></div><div class="log"></div>`;
+    const bucket = el.querySelector(".bucket"), logEl = el.querySelector(".log");
+    for (let i = 0; i < BURST; i++) { const d = document.createElement("div"); d.className = "tok"; bucket.appendChild(d); }
+    let msg = "";
+    const draw = m => { if (m !== undefined) msg = m; [...bucket.children].forEach((d,i) => d.classList.toggle("on", i < Math.floor(tokens)));
+      logEl.textContent = `${msg}  tokens ${tokens.toFixed(1)}/${BURST} · allowed ${ok} · 429 ${lim}`; };
+    const refill = () => { const n = performance.now(); tokens = Math.min(BURST, tokens + (n - last) / 1000 * RATE); last = n; };
+    const send = () => { refill(); if (tokens >= 1) { tokens -= 1; ok++; return true; } lim++; return false; };
+    const tick = setInterval(() => { if (!el.isConnected) return clearInterval(tick); refill(); draw(); }, 200);
+    const act = {
+      one: () => draw(send() ? "200 OK" : "429 rate.limited, Retry-After: 1"),
+      ten: () => { let a = 0; for (let i = 0; i < 10; i++) a += send() ? 1 : 0; draw(`${a}/10 allowed`); },
+      storm: () => { clearInterval(storm); const end = Date.now() + 5000;
+        storm = setInterval(() => { for (let i = 0; i < 5; i++) send(); draw("storm: 50 req/s"); if (Date.now() > end || !el.isConnected) clearInterval(storm); }, 100); },
+      reset: () => { clearInterval(storm); tokens = BURST; ok = 0; lim = 0; draw("reset"); }
+    };
+    el.querySelectorAll("[data-a]").forEach(b => b.onclick = act[b.dataset.a]);
+    draw();
+  });
+}
+
+applyLang(); route();
+</script>
+</body>
+</html>

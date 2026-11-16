@@ -1,0 +1,8 @@
+**/bin/
+**/obj/
+.git/
+docs/
+tests/
+load/
+deploy/
+*.md
